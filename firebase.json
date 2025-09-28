@@ -1,0 +1,1 @@
+{"flutter":{"platforms":{"android":{"default":{"projectId":"surge-monitor","appId":"1:205710084419:android:a768e2ca1f538c3a7947f6","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"surge-monitor","configurations":{"android":"1:205710084419:android:a768e2ca1f538c3a7947f6","ios":"1:205710084419:ios:5cc3be795eb70f1f7947f6"}}}}}}

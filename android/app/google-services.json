@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "205710084419",
+    "firebase_url": "https://surge-monitor-default-rtdb.firebaseio.com",
+    "project_id": "surge-monitor",
+    "storage_bucket": "surge-monitor.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:205710084419:android:a768e2ca1f538c3a7947f6",
+        "android_client_info": {
+          "package_name": "com.example.surge_monitor"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "205710084419-a35pr6eqtqctfptm0eomt094c8vp4g7j.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC12-hS_LGAkFTk9AXeJR2avHUvRDZ_9ho"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "205710084419-a35pr6eqtqctfptm0eomt094c8vp4g7j.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

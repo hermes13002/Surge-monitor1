@@ -1,0 +1,380 @@
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:fl_chart/fl_chart.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool changeOverSwitch = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Surge Monitor"),
+      ),
+      body: const HomeDashboard(),
+    );
+  }
+}
+
+class HomeDashboard extends StatefulWidget {
+  const HomeDashboard({super.key});
+
+  @override
+  State<HomeDashboard> createState() => _HomeDashboardState();
+}
+
+class _HomeDashboardState extends State<HomeDashboard> {
+  bool changeOverSwitch = false;
+  bool fridgeSwitch = false;
+
+  Widget _buildGridItem(int index) {
+    final List<Map<String, dynamic>> items = [
+      {
+        'icon': Icons.electric_bolt,
+        'color': Colors.orange,
+        'title': 'Voltage',
+        'status': '220V'
+      },
+      {
+        'icon': Icons.battery_charging_full,
+        'color': Colors.green,
+        'title': 'Current',
+        'status': '20A'
+      },
+      {
+        'icon': Icons.power,
+        'color': Colors.red,
+        'title': 'Power',
+        'status': '4.4kW'
+      },
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            items[index]['icon'],
+            size: 40,
+            color: items[index]['color'],
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                items[index]['title'],
+                style: GoogleFonts.ubuntu(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                items[index]['status'],
+                style: GoogleFonts.ubuntu(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        children: [
+          // 🔹 Switch between Solar and NEPA
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.sunny, color: Colors.yellow[700], size: 25),
+                  const SizedBox(width: 5),
+                  Icon(Icons.lightbulb_outline_rounded,
+                      color: Colors.yellow[700], size: 25),
+                  const SizedBox(width: 8),
+                  Text(
+                    changeOverSwitch ? 'Solar' : 'NEPA',
+                    style: GoogleFonts.ubuntu(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+              Switch.adaptive(
+                value: changeOverSwitch,
+                onChanged: (value) {
+                  setState(() {
+                    changeOverSwitch = value;
+                  });
+                },
+              )
+            ],
+          ),
+
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Surge Status',
+                style: GoogleFonts.ubuntu(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              Row(
+                children: [
+                  Text(
+                    'Safe',
+                    style: GoogleFonts.ubuntu(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.cyan,
+                    ),
+                  ),
+                  Container(
+                    margin: const EdgeInsets.only(left: 10),
+                    width: 12,
+                    height: 12,
+                    decoration: const BoxDecoration(
+                      color: Colors.cyan,
+                      shape: BoxShape.circle,
+                    ),
+                  )
+                ],
+              )
+            ],
+          ),
+
+          const Divider(height: 30, thickness: 1, color: Colors.grey),
+
+          // 🔹 Flexible grid for readings
+          Expanded(
+            child: GridView.builder(
+              itemCount: 3,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 20,
+                crossAxisSpacing: 20,
+                childAspectRatio: 1.4,
+              ),
+              itemBuilder: (context, index) => _buildGridItem(index),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // 🔹 Fridge Control Toggle Button
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.kitchen, color: Colors.blue[700], size: 25),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Fridge Control',
+                      style: GoogleFonts.ubuntu(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+                Switch.adaptive(
+                  value: fridgeSwitch,
+                  onChanged: (value) {
+                    setState(() {
+                      fridgeSwitch = value;
+                    });
+                    // Add your fridge control logic here
+                  },
+                )
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // 🔹 Surge detected box
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      size: 50, color: Colors.orange),
+                  const SizedBox(width: 15),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Surge Detected',
+                        style: GoogleFonts.ubuntu(
+                          fontSize: 18,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Something went wrong!',
+                        style: GoogleFonts.ubuntu(
+                          fontSize: 14,
+                          color: Colors.grey[700],
+                        ),
+                      )
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // 🔹 Surge Risk Prediction (Keeping the fl_chart and circular indicator)
+          Expanded(
+            flex: 1,
+            child: Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Left: text + chart
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Surge Risk Prediction',
+                          style: GoogleFonts.ubuntu(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: LineChart(
+                            LineChartData(
+                              gridData: FlGridData(show: false),
+                              titlesData: FlTitlesData(show: false),
+                              borderData: FlBorderData(show: false),
+                              minX: 0,
+                              maxX: 10,
+                              minY: 0,
+                              maxY: 6,
+                              lineBarsData: [
+                                LineChartBarData(
+                                  spots: [
+                                    FlSpot(0, 3),
+                                    FlSpot(1, 1),
+                                    FlSpot(2, 4),
+                                    FlSpot(3, 2),
+                                    FlSpot(4, 5),
+                                    FlSpot(5, 1),
+                                    FlSpot(6, 4),
+                                    FlSpot(7, 2),
+                                    FlSpot(8, 5),
+                                    FlSpot(9, 2),
+                                    FlSpot(10, 4),
+                                  ],
+                                  isCurved: true,
+                                  color: Colors.blue,
+                                  barWidth: 3,
+                                  isStrokeCapRound: true,
+                                  dotData: FlDotData(show: false),
+                                  belowBarData: BarAreaData(
+                                    show: true,
+                                    color: Colors.blue.withOpacity(0.15),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+                  // Right: circular indicator (pie chart)
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        height: 80,
+                        width: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.blue,
+                            width: 8,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '75%',
+                            style: GoogleFonts.ubuntu(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Efficiency',
+                        style: GoogleFonts.ubuntu(
+                          fontSize: 16,
+                          color: Colors.grey[700],
+                        ),
+                      )
+                    ],
+                  )
+                ],
+              ),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}

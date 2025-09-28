@@ -1,0 +1,34 @@
+name: surge_monitor
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: 
+  google_fonts: 
+  fl_chart: 
+  path_provider: 
+  # package_info_plus: 
+
+  # Firebase dependencies (needed for your project)
+  firebase_core: ^2.20.0
+  firebase_database: ^10.4.0
+  firebase_auth: ^4.14.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - asset/images/
