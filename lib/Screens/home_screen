@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,6 +34,132 @@ class HomeDashboard extends StatefulWidget {
 class _HomeDashboardState extends State<HomeDashboard> {
   bool changeOverSwitch = false;
   bool fridgeSwitch = false;
+  
+  // Firebase references
+  final DatabaseReference _controlRef = FirebaseDatabase.instance.ref('device_control');
+  final DatabaseReference _statusRef = FirebaseDatabase.instance.ref('status');
+  
+  // Real-time sensor data from ESP32
+  double voltage = 0.0;
+  double current = 0.0;
+  double power = 0.0;
+  String systemStatus = "Normal";
+  String powerSource = "Grid";
+  
+  // Real-time graph data
+  List<FlSpot> powerData = [];
+  int timeCounter = 0;
+  Timer? dataTimer;
+  Timer? graphTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    startFirebaseListeners();
+    startGraphUpdates();
+  }
+
+  void startFirebaseListeners() {
+    // Listen to ESP32 sensor data
+    _statusRef.onValue.listen((DatabaseEvent event) {
+      final data = event.snapshot.value as Map?;
+      if (data != null) {
+        setState(() {
+          voltage = (data['voltage'] as num?)?.toDouble() ?? 0.0;
+          current = (data['current'] as num?)?.toDouble() ?? 0.0;
+          power = (data['power'] as num?)?.toDouble() ?? 0.0;
+          systemStatus = data['status']?.toString() ?? "Normal";
+          powerSource = data['source']?.toString() ?? "Grid";
+          
+          // Sync toggle states with actual hardware
+          changeOverSwitch = powerSource.toLowerCase() == "solar";
+          fridgeSwitch = (data['fridge_on'] as bool?) ?? false;
+        });
+      }
+    });
+  }
+
+  void startGraphUpdates() {
+    // Update graph data every 2 seconds
+    graphTimer = Timer.periodic(Duration(seconds: 2), (timer) {
+      if (mounted) {
+        setState(() {
+          timeCounter++;
+          // Add new data point, keep last 20 points
+          powerData.add(FlSpot(timeCounter.toDouble(), power));
+          if (powerData.length > 20) {
+            powerData.removeAt(0);
+          }
+        });
+      }
+    });
+  }
+
+  // Send changeover command to ESP32
+  Future<void> sendChangeoverCommand(bool switchToSolar) async {
+    try {
+      await _controlRef.child('changeover').set({
+        'status': switchToSolar ? 'solar' : 'nepa',
+        'timestamp': ServerValue.timestamp,
+        'command_by': 'flutter_app',
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            switchToSolar ? '🔆 Switching to Solar...' : '🔌 Switching to Grid...',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      
+    } catch (e) {
+      // Revert toggle on error
+      setState(() {
+        changeOverSwitch = !switchToSolar;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Command failed: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Send fridge command to ESP32
+  Future<void> sendFridgeCommand(bool turnOn) async {
+    try {
+      await _controlRef.child('fridge').set({
+        'status': turnOn ? 'on' : 'off',
+        'timestamp': ServerValue.timestamp,
+        'command_by': 'flutter_app',
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            turnOn ? '❄️ Fridge turning ON...' : '⏸️ Fridge turning OFF...',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      
+    } catch (e) {
+      // Revert toggle on error
+      setState(() {
+        fridgeSwitch = !turnOn;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Fridge control failed: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   Widget _buildGridItem(int index) {
     final List<Map<String, dynamic>> items = [
@@ -40,19 +167,22 @@ class _HomeDashboardState extends State<HomeDashboard> {
         'icon': Icons.electric_bolt,
         'color': Colors.orange,
         'title': 'Voltage',
-        'status': '220V'
+        'status': '${voltage.toStringAsFixed(1)}V', // Real-time from ESP32
+        'value': voltage,
       },
       {
         'icon': Icons.battery_charging_full,
         'color': Colors.green,
         'title': 'Current',
-        'status': '20A'
+        'status': '${current.toStringAsFixed(2)}A', // Real-time from ESP32
+        'value': current,
       },
       {
         'icon': Icons.power,
         'color': Colors.red,
         'title': 'Power',
-        'status': '4.4kW'
+        'status': '${power.toStringAsFixed(1)}W', // Real-time from ESP32
+        'value': power,
       },
     ];
 
@@ -95,13 +225,32 @@ class _HomeDashboardState extends State<HomeDashboard> {
     );
   }
 
+  // Helper method to get status color
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'normal':
+        return Colors.green;
+      case 'surge_detected':
+        return Colors.red;
+      default:
+        return Colors.orange;
+    }
+  }
+
+  @override
+  void dispose() {
+    dataTimer?.cancel();
+    graphTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Column(
         children: [
-          // 🔹 Switch between Solar and NEPA
+          // 🔹 Switch between Solar and NEPA - NOW CONTROLS ESP32
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -128,6 +277,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   setState(() {
                     changeOverSwitch = value;
                   });
+                  sendChangeoverCommand(value); // Send to ESP32
                 },
               )
             ],
@@ -138,7 +288,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Surge Status',
+                'System Status',
                 style: GoogleFonts.ubuntu(
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
@@ -148,19 +298,19 @@ class _HomeDashboardState extends State<HomeDashboard> {
               Row(
                 children: [
                   Text(
-                    'Safe',
+                    systemStatus.replaceAll('_', ' '),
                     style: GoogleFonts.ubuntu(
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: Colors.cyan,
+                      color: _getStatusColor(systemStatus),
                     ),
                   ),
                   Container(
                     margin: const EdgeInsets.only(left: 10),
                     width: 12,
                     height: 12,
-                    decoration: const BoxDecoration(
-                      color: Colors.cyan,
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(systemStatus),
                       shape: BoxShape.circle,
                     ),
                   )
@@ -171,7 +321,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
           const Divider(height: 30, thickness: 1, color: Colors.grey),
 
-          // 🔹 Flexible grid for readings
+          // 🔹 Flexible grid for REAL-TIME readings from ESP32
           Expanded(
             child: GridView.builder(
               itemCount: 3,
@@ -187,7 +337,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
           const SizedBox(height: 20),
 
-          // 🔹 Fridge Control Toggle Button
+          // 🔹 Fridge Control Toggle Button - NOW CONTROLS ESP32
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -199,15 +349,31 @@ class _HomeDashboardState extends State<HomeDashboard> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.kitchen, color: Colors.blue[700], size: 25),
+                    Icon(
+                      fridgeSwitch ? Icons.kitchen : Icons.kitchen_outlined,
+                      color: fridgeSwitch ? Colors.blue[700] : Colors.grey[600], 
+                      size: 25
+                    ),
                     const SizedBox(width: 8),
-                    Text(
-                      'Fridge Control',
-                      style: GoogleFonts.ubuntu(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fridge Control',
+                          style: GoogleFonts.ubuntu(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          fridgeSwitch ? 'ON' : 'OFF',
+                          style: GoogleFonts.ubuntu(
+                            fontSize: 12,
+                            color: fridgeSwitch ? Colors.green : Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -217,7 +383,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     setState(() {
                       fridgeSwitch = value;
                     });
-                    // Add your fridge control logic here
+                    sendFridgeCommand(value); // Send to ESP32
                   },
                 )
               ],
@@ -226,24 +392,27 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
           const SizedBox(height: 20),
 
-          // 🔹 Surge detected box
+          // 🔹 Surge detected box - DYNAMIC BASED ON ESP32 STATUS
           DecoratedBox(
             decoration: BoxDecoration(
-              color: Colors.grey[200],
+              color: systemStatus == "Surge_Detected" ? Colors.orange[100] : Colors.grey[200],
               borderRadius: BorderRadius.circular(15),
             ),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  const Icon(Icons.warning_amber_rounded,
-                      size: 50, color: Colors.orange),
+                  Icon(
+                    systemStatus == "Surge_Detected" ? Icons.warning_amber_rounded : Icons.check_circle,
+                    size: 50, 
+                    color: systemStatus == "Surge_Detected" ? Colors.orange : Colors.green,
+                  ),
                   const SizedBox(width: 15),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Surge Detected',
+                        systemStatus == "Surge_Detected" ? 'Surge Detected!' : 'System Normal',
                         style: GoogleFonts.ubuntu(
                           fontSize: 18,
                           color: Colors.black87,
@@ -251,7 +420,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        'Something went wrong!',
+                        systemStatus == "Surge_Detected" ? 'Switched to safety mode' : 'All systems operational',
                         style: GoogleFonts.ubuntu(
                           fontSize: 14,
                           color: Colors.grey[700],
@@ -266,7 +435,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
           const SizedBox(height: 20),
 
-          // 🔹 Surge Risk Prediction (Keeping the fl_chart and circular indicator)
+          // 🔹 REAL-TIME Power Graph (Power vs Time)
           Expanded(
             flex: 1,
             child: Container(
@@ -275,100 +444,69 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 color: Colors.grey[200],
                 borderRadius: BorderRadius.circular(15),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
                 children: [
-                  // Left: text + chart
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Surge Risk Prediction',
-                          style: GoogleFonts.ubuntu(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: LineChart(
-                            LineChartData(
-                              gridData: FlGridData(show: false),
-                              titlesData: FlTitlesData(show: false),
-                              borderData: FlBorderData(show: false),
-                              minX: 0,
-                              maxX: 10,
-                              minY: 0,
-                              maxY: 6,
-                              lineBarsData: [
-                                LineChartBarData(
-                                  spots: [
-                                    FlSpot(0, 3),
-                                    FlSpot(1, 1),
-                                    FlSpot(2, 4),
-                                    FlSpot(3, 2),
-                                    FlSpot(4, 5),
-                                    FlSpot(5, 1),
-                                    FlSpot(6, 4),
-                                    FlSpot(7, 2),
-                                    FlSpot(8, 5),
-                                    FlSpot(9, 2),
-                                    FlSpot(10, 4),
-                                  ],
-                                  isCurved: true,
-                                  color: Colors.blue,
-                                  barWidth: 3,
-                                  isStrokeCapRound: true,
-                                  dotData: FlDotData(show: false),
-                                  belowBarData: BarAreaData(
-                                    show: true,
-                                    color: Colors.blue.withOpacity(0.15),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  // Right: circular indicator (pie chart)
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        height: 80,
-                        width: 80,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.blue,
-                            width: 8,
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '75%',
-                            style: GoogleFonts.ubuntu(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
                       Text(
-                        'Efficiency',
+                        'Real-time Power Consumption',
                         style: GoogleFonts.ubuntu(
                           fontSize: 16,
-                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w600,
                         ),
-                      )
+                      ),
+                      Text(
+                        'Live: ${power.toStringAsFixed(1)}W',
+                        style: GoogleFonts.ubuntu(
+                          fontSize: 14,
+                          color: Colors.blue,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ],
-                  )
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: LineChart(
+                      LineChartData(
+                        gridData: FlGridData(show: true, drawVerticalLine: true),
+                        titlesData: FlTitlesData(
+                          show: true,
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: true),
+                          ),
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (value, meta) {
+                                return Text('${value.toInt()}W');
+                              },
+                            ),
+                          ),
+                        ),
+                        borderData: FlBorderData(show: true),
+                        minX: powerData.isEmpty ? 0 : powerData.first.x,
+                        maxX: powerData.isEmpty ? 10 : powerData.last.x,
+                        minY: 0,
+                        maxY: powerData.isEmpty ? 100 : (powerData.map((spot) => spot.y).reduce((a, b) => a > b ? a : b) * 1.1).clamp(50, double.infinity),
+                        lineBarsData: [
+                          LineChartBarData(
+                            spots: powerData,
+                            isCurved: true,
+                            color: Colors.blue,
+                            barWidth: 3,
+                            isStrokeCapRound: true,
+                            dotData: FlDotData(show: false),
+                            belowBarData: BarAreaData(
+                              show: true,
+                              color: Colors.blue.withOpacity(0.15),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
