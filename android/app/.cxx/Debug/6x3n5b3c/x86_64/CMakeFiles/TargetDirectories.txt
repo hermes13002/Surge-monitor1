@@ -1,0 +1,2 @@
+/Users/seleemaleshinloye/Surge-monitor1/android/app/.cxx/Debug/6x3n5b3c/x86_64/CMakeFiles/edit_cache.dir
+/Users/seleemaleshinloye/Surge-monitor1/android/app/.cxx/Debug/6x3n5b3c/x86_64/CMakeFiles/rebuild_cache.dir

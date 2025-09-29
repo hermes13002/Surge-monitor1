@@ -11,24 +11,22 @@ dependencies:
   flutter:
     sdk: flutter
 
-  cupertino_icons: 
-  google_fonts: 
-  fl_chart: 
-  path_provider: 
-  # package_info_plus: 
-
+  cupertino_icons: ^1.0.2
+  google_fonts: ^4.0.4
+  fl_chart: ^0.71.0
+  path_provider: ^2.1.1
   # Firebase dependencies (needed for your project)
   firebase_core: ^2.20.0
-  firebase_database: ^10.4.0
+  firebase_database: ^10.0.7
   firebase_auth: ^4.14.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: any
+  flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true
 
   assets:
-    - asset/images/
+    #- assets/images/
