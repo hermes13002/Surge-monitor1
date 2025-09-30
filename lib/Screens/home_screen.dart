@@ -37,8 +37,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   bool fridgeSwitch = false;
 
   // Firebase references
+  final DatabaseReference _currentStatusRef = FirebaseDatabase.instance.ref('current_status');
   final DatabaseReference _controlRef = FirebaseDatabase.instance.ref('device_control');
-  final DatabaseReference _readingsRef = FirebaseDatabase.instance.ref('readings_history');
   final DatabaseReference _manualOverrideRef = FirebaseDatabase.instance.ref('device_control/changeover/manual_override');
 
   // Real-time sensor data from ESP32
@@ -47,6 +47,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   double power = 0.0;
   String systemStatus = "Normal";
   String powerSource = "Grid";
+  bool manualOverride = false;
 
   // AI Prediction and Chart Data
   double surgePredictionPercent = 0.0;
@@ -64,58 +65,46 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   void _testFirebaseConnection() async {
     try {
-      DatabaseEvent testEvent = await _readingsRef.once();
+      DatabaseEvent testEvent = await _currentStatusRef.once();
       print('✅ Firebase Connection Test: SUCCESS');
-      print('📁 Data at /readings_history: ${testEvent.snapshot.value}');
+      print('📁 Data at /current_status: ${testEvent.snapshot.value}');
     } catch (e) {
       print('❌ Firebase Connection Test: FAILED - $e');
     }
   }
 
   void startFirebaseListeners() {
-    print('🎯 Listening to /readings_history path...');
+    print('🎯 Listening to /current_status path for real-time data...');
 
-    _readingsRef.onValue.listen((DatabaseEvent event) {
+    // Listen to current_status for real-time updates
+    _currentStatusRef.onValue.listen((DatabaseEvent event) {
       final data = event.snapshot.value;
-      print('🔥 RAW Data from /readings_history: $data');
+      print('🔥 REAL-TIME Data from /current_status: $data');
 
       if (data != null && data is Map) {
-        final Map<dynamic, dynamic> readingsMap = data;
-
-        if (readingsMap.isNotEmpty) {
-          final latestKey = readingsMap.keys.last;
-          final latestReading = readingsMap[latestKey];
-
-          print('📊 Latest reading key: $latestKey');
-          print('📊 Latest reading data: $latestReading');
-
-          if (latestReading is Map) {
-            _processLatestReading(latestReading);
-          }
-        }
+        _processCurrentStatus(data as Map<dynamic, dynamic>);
       }
     });
 
-    // Also listen to manual override changes specifically
+    // Listen to manual override changes
     _manualOverrideRef.onValue.listen((DatabaseEvent event) {
       print('🔄 Manual override updated: ${event.snapshot.value}');
     });
   }
 
-  void _processLatestReading(Map<dynamic, dynamic> reading) {
-    print('🔍 Processing reading: $reading');
+  void _processCurrentStatus(Map<dynamic, dynamic> statusData) {
+    print('🔍 Processing current_status: $statusData');
 
     setState(() {
-      // Extract values with debug
-      double newVoltage = _parseDouble(reading['voltage']) ?? 0.0;
-      double newCurrent = _parseDouble(reading['current']) ?? 0.0;
-      double newPower = _parseDouble(reading['power']) ?? 0.0;
-      String newStatus = reading['status']?.toString() ?? "Normal";
-      String newSource = reading['source']?.toString() ?? "Grid";
-      bool newFridge = (reading['fridge_on'] as bool?) ?? false;
-      bool manualOverride = (reading['manual_override'] as bool?) ?? false;
+      // Extract values from current_status
+      double newVoltage = _parseDouble(statusData['voltage']) ?? 0.0;
+      double newCurrent = _parseDouble(statusData['current']) ?? 0.0;
+      double newPower = _parseDouble(statusData['power']) ?? 0.0;
+      String newStatus = statusData['status']?.toString() ?? "Normal";
+      String newSource = statusData['power_source']?.toString() ?? "Grid";
+      bool newManualOverride = (statusData['manual_override'] as bool?) ?? false;
 
-      print('📊 Extracted - V: $newVoltage, I: $newCurrent, P: $newPower, Source: $newSource, Manual Override: $manualOverride');
+      print('📊 Extracted - V: $newVoltage, I: $newCurrent, P: $newPower, Source: $newSource, Manual Override: $newManualOverride');
 
       // Update UI state
       voltage = newVoltage;
@@ -123,17 +112,14 @@ class _HomeDashboardState extends State<HomeDashboard> {
       power = newPower;
       systemStatus = newStatus;
       powerSource = newSource;
-      fridgeSwitch = newFridge;
+      manualOverride = newManualOverride;
 
-      // CRITICAL FIX: Only sync toggle if manual override is NOT active
-      if (!manualOverride) {
-        changeOverSwitch = powerSource.toLowerCase() == "solar";
-      }
-      // If manual override IS active, keep the switch position as user set it
+      // Update toggle based on power source
+      changeOverSwitch = powerSource.toLowerCase() == "solar";
 
       surgePredictionPercent = _calculateSurgePrediction(voltage);
 
-      print('🎯 UI UPDATED - V: ${voltage}V, I: ${current}A, P: ${power}W, Source: $powerSource, Override: $manualOverride');
+      print('🎯 UI UPDATED - V: ${voltage}V, I: ${current}A, P: ${power}W, Source: $powerSource');
     });
   }
 
@@ -148,55 +134,45 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   // Helper method to calculate dynamic Y-axis maximum
   double _calculateMaxY(List<FlSpot> data) {
-    if (data.isEmpty) return 2000.0;
+    if (data.isEmpty) return 100.0; // Default to 100W when no data
 
     double maxY = data.map((spot) => spot.y).reduce((a, b) => a > b ? a : b);
     double paddedMax = maxY * 1.2;
 
     // Ensure we have a reasonable minimum range for visualization
-    if (paddedMax < 500) return 500.0;
+    if (paddedMax < 100) return 100.0;
     return paddedMax;
   }
 
- void startGraphUpdates() {
-   print('📈 Starting graph with REAL Firebase data (50 points)...');
+  void startGraphUpdates() {
+    print('📈 Starting graph with REAL Firebase data only...');
 
-   // Clear any existing data to start fresh
-   powerData.clear();
-   timeCounter = 0;
+    // Clear any existing data to start fresh
+    powerData.clear();
+    timeCounter = 0;
 
-   // Update graph when new Firebase data arrives
-   graphTimer = Timer.periodic(Duration(seconds: 3), (timer) {
-     if (mounted) {
-       setState(() {
-         timeCounter++;
+    // Update graph when new Firebase data arrives
+    graphTimer = Timer.periodic(Duration(seconds: 3), (timer) {
+      if (mounted) {
+        setState(() {
+          timeCounter++;
 
-         // Use the ACTUAL power value from Firebase
-         double graphPower = power;
+          // ✅ FIXED: Use ONLY the ACTUAL power value from Firebase - NO SIMULATION
+          double graphPower = power;
 
-         // If no real data yet, use simulated variation for testing
-         if (graphPower == 0) {
-           graphPower = 1500.0 + (timeCounter % 10) * 100; // More variation for testing
-         }
+          // Add new data point with actual power value (even if it's 0)
+          powerData.add(FlSpot(timeCounter.toDouble(), graphPower));
 
-         // Add new data point
-         powerData.add(FlSpot(timeCounter.toDouble(), graphPower));
+          // Keep only last 50 points
+          if (powerData.length > 50) {
+            powerData.removeAt(0);
+          }
 
-         // CRITICAL: Keep only last 50 points
-         if (powerData.length > 50) {
-           powerData.removeAt(0);
-         }
-
-         print('📈 Graph - Points: ${powerData.length}/50, Power: ${graphPower.toStringAsFixed(1)}W, Time: $timeCounter');
-
-         // Debug: Print first and last points to verify range
-         if (powerData.length > 1) {
-           print('📊 Graph Range - First: (${powerData.first.x}, ${powerData.first.y}), Last: (${powerData.last.x}, ${powerData.last.y})');
-         }
-       });
-     }
-   });
- }
+          print('📈 Graph - Points: ${powerData.length}/50, Power: ${graphPower.toStringAsFixed(1)}W, Time: $timeCounter');
+        });
+      }
+    });
+  }
 
   // Simulate AI surge prediction
   double _calculateSurgePrediction(double voltage) {
@@ -206,32 +182,20 @@ class _HomeDashboardState extends State<HomeDashboard> {
     return 0.1;
   }
 
-  // Send changeover command to ESP32 AND update Firebase
+  // Send changeover command to ESP32
   Future<void> sendChangeoverCommand(bool switchToSolar) async {
     bool originalState = changeOverSwitch;
 
     try {
-      String newSource = switchToSolar ? 'solar' : 'nepa';
+      String newSource = switchToSolar ? 'solar' : 'grid';
 
       // Immediately update UI for better responsiveness
       setState(() {
         changeOverSwitch = switchToSolar;
       });
 
-      // FIRST: Set manual override to true
-      await _manualOverrideRef.set(true);
-      print('✅ Manual override set to: true');
-
-      // THEN: Send command to ESP32
-      await _controlRef.child('changeover').set({
-        'status': newSource,
-        'manual_override': true,
-        'timestamp': ServerValue.timestamp,
-        'command_by': 'flutter_app',
-      });
-
-      // ALSO update the current status in Firebase so it shows immediately
-      await _updateCurrentStatusInFirebase(newSource);
+      // Send command to ESP32
+      await _manualOverrideRef.set(newSource);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -242,19 +206,11 @@ class _HomeDashboardState extends State<HomeDashboard> {
         ),
       );
 
-      // Reset manual override after operation is complete
-      Future.delayed(Duration(seconds: 5), () {
-        _resetManualOverride();
-      });
-
     } catch (e) {
       // Revert toggle on error
       setState(() {
         changeOverSwitch = originalState;
       });
-
-      // Reset manual override on error
-      await _manualOverrideRef.set(false);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -263,39 +219,6 @@ class _HomeDashboardState extends State<HomeDashboard> {
           duration: Duration(seconds: 3),
         ),
       );
-    }
-  }
-
-  // Reset manual override after successful operation
-  Future<void> _resetManualOverride() async {
-    try {
-      await _manualOverrideRef.set(false);
-      print('✅ Manual override reset to: false');
-    } catch (e) {
-      print('❌ Failed to reset manual override: $e');
-    }
-  }
-
-  // Update current status in Firebase so UI updates immediately
-  Future<void> _updateCurrentStatusInFirebase(String newSource) async {
-    try {
-      // Get the latest reading key
-      DatabaseEvent event = await _readingsRef.once();
-      if (event.snapshot.value != null && event.snapshot.value is Map) {
-        Map<dynamic, dynamic> readingsMap = event.snapshot.value as Map;
-        if (readingsMap.isNotEmpty) {
-          String latestKey = readingsMap.keys.last;
-
-          // Update the source in the latest reading
-          await _readingsRef.child(latestKey).update({
-            'source': newSource,
-          });
-
-          print('✅ Updated Firebase source to: $newSource');
-        }
-      }
-    } catch (e) {
-      print('❌ Failed to update Firebase source: $e');
     }
   }
 
@@ -340,6 +263,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
     }
   }
 
+  // Only 2 boxes (Voltage & Current)
   Widget _buildGridItem(int index) {
     final List<Map<String, dynamic>> items = [
       {
@@ -355,13 +279,6 @@ class _HomeDashboardState extends State<HomeDashboard> {
         'title': 'Current',
         'status': '${current.toStringAsFixed(2)}A',
         'value': current,
-      },
-      {
-        'icon': Icons.power,
-        'color': Colors.red,
-        'title': 'Power',
-        'status': '${power.toStringAsFixed(1)}W',
-        'value': power,
       },
     ];
 
@@ -409,6 +326,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
     switch (status.toLowerCase()) {
       case 'danger':
       case 'surge_detected':
+      case 'auto_surge':
         return Colors.red;
       case 'warning':
         return Colors.orange;
@@ -438,33 +356,27 @@ class _HomeDashboardState extends State<HomeDashboard> {
     super.dispose();
   }
 
-  // PULL-TO-REFRESH: Replace the build method with this
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: () async {
-        // Force refresh by triggering Firebase data reload
         setState(() {
-          // This will cause the UI to rebuild and show latest data
           print('🔄 Manual refresh triggered');
         });
-
-        // Add a small delay to show the refresh animation
         await Future.delayed(Duration(milliseconds: 1000));
       },
       child: _buildHomeContent(),
     );
   }
 
-  // Extract your main content to a separate method
   Widget _buildHomeContent() {
     return SingleChildScrollView(
-      physics: AlwaysScrollableScrollPhysics(), // Important for RefreshIndicator
+      physics: AlwaysScrollableScrollPhysics(),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Column(
           children: [
-            // 🔹 Switch between Solar and NEPA
+            // 🔹 Switch between Solar and Grid
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -476,7 +388,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                         color: Colors.yellow[700], size: 22),
                     const SizedBox(width: 6),
                     Text(
-                      changeOverSwitch ? 'Solar' : 'NEPA',
+                      changeOverSwitch ? 'Solar' : 'Grid',
                       style: GoogleFonts.ubuntu(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
@@ -534,12 +446,12 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
             const SizedBox(height: 12),
 
-            // 🔹 Sensor Readings Grid
+            // 🔹 Sensor Readings Grid - 2 boxes only
             SizedBox(
               height: 100,
               child: GridView.builder(
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: 3,
+                itemCount: 2,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   mainAxisSpacing: 8,
@@ -547,6 +459,32 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   childAspectRatio: 2.0,
                 ),
                 itemBuilder: (context, index) => _buildGridItem(index),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // 🔹 Power Display
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.power, color: Colors.blue[700], size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Power: ${power.toStringAsFixed(1)}W',
+                    style: GoogleFonts.ubuntu(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue[800],
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -565,9 +503,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   Row(
                     children: [
                       Icon(
-                        fridgeSwitch ? Icons.kitchen : Icons.kitchen_outlined,
-                        color: fridgeSwitch ? Colors.blue[700] : Colors.grey[600],
-                        size: 22
+                          fridgeSwitch ? Icons.kitchen : Icons.kitchen_outlined,
+                          color: fridgeSwitch ? Colors.blue[700] : Colors.grey[600],
+                          size: 22
                       ),
                       const SizedBox(width: 8),
                       Column(
@@ -608,15 +546,15 @@ class _HomeDashboardState extends State<HomeDashboard> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: systemStatus == "Surge_Detected" ? Colors.orange[100] : Colors.grey[200],
+                color: systemStatus.toLowerCase().contains("surge") ? Colors.orange[100] : Colors.grey[200],
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
                   Icon(
-                    systemStatus == "Surge_Detected" ? Icons.warning_amber_rounded : Icons.check_circle,
+                    systemStatus.toLowerCase().contains("surge") ? Icons.warning_amber_rounded : Icons.check_circle,
                     size: 40,
-                    color: systemStatus == "Surge_Detected" ? Colors.orange : Colors.green,
+                    color: systemStatus.toLowerCase().contains("surge") ? Colors.orange : Colors.green,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -624,7 +562,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          systemStatus == "Surge_Detected" ? 'Surge Detected!' : 'System Normal',
+                          systemStatus.toLowerCase().contains("surge") ? 'Surge Detected!' : 'System Normal',
                           style: GoogleFonts.ubuntu(
                             fontSize: 16,
                             color: Colors.black87,
@@ -632,7 +570,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          systemStatus == "Surge_Detected" ? 'Switched to safety mode' : 'All systems operational',
+                          systemStatus.toLowerCase().contains("surge") ? 'Switched to safety mode' : 'All systems operational',
                           style: GoogleFonts.ubuntu(
                             fontSize: 12,
                             color: Colors.grey[700],
@@ -649,7 +587,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
             // 🔹 AI Prediction Section
             Container(
-              height: 120, // Fixed height instead of Expanded
+              height: 120,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.grey[200],
@@ -707,9 +645,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
             const SizedBox(height: 12),
 
-            // 🔹 Power Graph - 50 POINTS VERSION
+            // 🔹 Power Graph - REAL DATA ONLY
             Container(
-              height: 250, // Fixed height instead of Expanded
+              height: 250,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.grey[200],
@@ -721,7 +659,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Power Consumption (Last 50 Points)',
+                        'Power Consumption',
                         style: GoogleFonts.ubuntu(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -749,52 +687,52 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   Expanded(
                     child: powerData.isEmpty
                         ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.show_chart, size: 40, color: Colors.grey[400]),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Waiting for data...',
-                                  style: GoogleFonts.ubuntu(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : LineChart(
-                            LineChartData(
-                              gridData: FlGridData(show: false),
-                              titlesData: FlTitlesData(show: false),
-                              borderData: FlBorderData(show: false),
-                              minX: powerData.first.x,
-                              maxX: powerData.last.x,
-                              minY: 0,
-                              maxY: _calculateMaxY(powerData),
-                              lineBarsData: [
-                                LineChartBarData(
-                                  spots: powerData,
-                                  isCurved: true,
-                                  color: Colors.blue,
-                                  barWidth: 3,
-                                  isStrokeCapRound: true,
-                                  dotData: FlDotData(show: false),
-                                  belowBarData: BarAreaData(
-                                    show: true,
-                                    color: Colors.blue.withOpacity(0.1),
-                                  ),
-                                ),
-                              ],
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.show_chart, size: 40, color: Colors.grey[400]),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Waiting for data...',
+                            style: GoogleFonts.ubuntu(
+                              fontSize: 12,
+                              color: Colors.grey[600],
                             ),
                           ),
+                        ],
+                      ),
+                    )
+                        : LineChart(
+                      LineChartData(
+                        gridData: FlGridData(show: false),
+                        titlesData: FlTitlesData(show: false),
+                        borderData: FlBorderData(show: false),
+                        minX: powerData.first.x,
+                        maxX: powerData.last.x,
+                        minY: 0,
+                        maxY: _calculateMaxY(powerData),
+                        lineBarsData: [
+                          LineChartBarData(
+                            spots: powerData,
+                            isCurved: true,
+                            color: power > 0 ? Colors.blue : Colors.grey, // Grey when no power
+                            barWidth: 3,
+                            isStrokeCapRound: true,
+                            dotData: FlDotData(show: false),
+                            belowBarData: BarAreaData(
+                              show: true,
+                              color: (power > 0 ? Colors.blue : Colors.grey).withOpacity(0.1),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 20), // Extra padding at bottom
+            const SizedBox(height: 20),
           ],
         ),
       ),

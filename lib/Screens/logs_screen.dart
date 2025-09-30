@@ -10,13 +10,10 @@ class LogsScreen extends StatefulWidget {
 }
 
 class _LogsScreenState extends State<LogsScreen> {
-  final DatabaseReference _logsRef = FirebaseDatabase.instance.ref().child("surges");
   final DatabaseReference _readingsRef = FirebaseDatabase.instance.ref().child("readings_history");
   final DatabaseReference _controlRef = FirebaseDatabase.instance.ref().child("device_control");
 
-  bool _isLoadingSurges = true;
   bool _isLoadingReadings = true;
-  List<Map<String, dynamic>> _surgeLogs = [];
   List<Map<String, dynamic>> _sensorHistory = [];
   List<Map<String, dynamic>> _controlLogs = [];
 
@@ -27,21 +24,8 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   Future<void> _loadAllLogs() async {
-    await _loadSurgeLogs();
     await _loadSensorHistory();
     await _loadControlLogs();
-  }
-
-  Future<void> _loadSurgeLogs() async {
-    try {
-      DatabaseEvent event = await _logsRef.once();
-      _processSurgeData(event.snapshot.value);
-    } catch (e) {
-      print('❌ Error loading surge logs: $e');
-      setState(() {
-        _isLoadingSurges = false;
-      });
-    }
   }
 
   Future<void> _loadSensorHistory() async {
@@ -63,39 +47,6 @@ class _LogsScreenState extends State<LogsScreen> {
     } catch (e) {
       print('❌ Error loading control logs: $e');
     }
-  }
-
-  void _processSurgeData(dynamic data) {
-    if (data == null || data is! Map) {
-      setState(() {
-        _isLoadingSurges = false;
-        _surgeLogs = [];
-      });
-      return;
-    }
-
-    List<Map<String, dynamic>> logs = [];
-
-    data.forEach((key, value) {
-      if (value is Map) {
-        logs.add({
-          'key': key,
-          'timestamp': value['timestamp'] ?? 0,
-          'voltage': (value['voltage'] as num?)?.toDouble() ?? 0.0,
-          'current': (value['current'] as num?)?.toDouble() ?? 0.0,
-          'status': value['status']?.toString() ?? 'Unknown',
-          'power': (value['power'] as num?)?.toDouble() ?? 0.0,
-        });
-      }
-    });
-
-    // Sort by timestamp (newest first)
-    logs.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
-
-    setState(() {
-      _surgeLogs = logs;
-      _isLoadingSurges = false;
-    });
   }
 
   void _processSensorData(dynamic data) {
@@ -231,72 +182,6 @@ class _LogsScreenState extends State<LogsScreen> {
       default:
         return Colors.grey;
     }
-  }
-
-  Widget _buildSurgeLogItem(Map<String, dynamic> log) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: _getStatusColor(log['status']).withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            log['status'].toLowerCase().contains('danger') ? Icons.warning : Icons.warning_amber,
-            color: _getStatusColor(log['status']),
-            size: 24,
-          ),
-        ),
-        title: Text(
-          log['status'].replaceAll('_', ' '),
-          style: GoogleFonts.ubuntu(
-            fontWeight: FontWeight.w600,
-            color: _getStatusColor(log['status']),
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Text(
-              _formatTimeAgo(log['timestamp']),
-              style: GoogleFonts.ubuntu(
-                color: Colors.grey[600],
-                fontSize: 12,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                _buildDataChip('${log['voltage'].toStringAsFixed(1)}V', Colors.orange),
-                const SizedBox(width: 8),
-                _buildDataChip('${log['current'].toStringAsFixed(2)}A', Colors.green),
-                const SizedBox(width: 8),
-                _buildDataChip('${log['power'].toStringAsFixed(1)}W', Colors.red),
-              ],
-            ),
-          ],
-        ),
-        trailing: Icon(
-          Icons.arrow_forward_ios,
-          size: 16,
-          color: Colors.grey[400],
-        ),
-      ),
-    );
   }
 
   Widget _buildSensorHistoryItem(Map<String, dynamic> reading) {
@@ -441,88 +326,31 @@ class _LogsScreenState extends State<LogsScreen> {
           ),
         ],
       ),
-      body: DefaultTabController(
-        length: 2,
+      body: _isLoadingReadings
+          ? const Center(
+        child: CircularProgressIndicator(),
+      )
+          : _sensorHistory.isEmpty
+          ? const Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Tab Bar
-            Container(
-              color: Colors.grey[100],
-              child: TabBar(
-                labelColor: Colors.blue[700],
-                unselectedLabelColor: Colors.grey[600],
-                indicatorColor: Colors.blue[700],
-                tabs: const [
-                  Tab(text: 'Surge Events'),
-                  Tab(text: 'Sensor History'),
-                ],
-              ),
-            ),
-
-            Expanded(
-              child: TabBarView(
-                children: [
-                  // SURGE EVENTS TAB
-                  _isLoadingSurges
-                      ? const Center(
-                    child: CircularProgressIndicator(),
-                  )
-                      : _surgeLogs.isEmpty
-                      ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.warning, size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text(
-                          "No surge events recorded",
-                          style: TextStyle(color: Colors.grey, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                      : RefreshIndicator(
-                    onRefresh: _loadSurgeLogs,
-                    child: ListView.builder(
-                      itemCount: _surgeLogs.length,
-                      itemBuilder: (context, index) {
-                        return _buildSurgeLogItem(_surgeLogs[index]);
-                      },
-                    ),
-                  ),
-
-                  // SENSOR HISTORY TAB
-                  _isLoadingReadings
-                      ? const Center(
-                    child: CircularProgressIndicator(),
-                  )
-                      : _sensorHistory.isEmpty
-                      ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.show_chart, size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
-                        Text(
-                          "No sensor data available",
-                          style: TextStyle(color: Colors.grey, fontSize: 16),
-                        ),
-                      ],
-                    ),
-                  )
-                      : RefreshIndicator(
-                    onRefresh: _loadSensorHistory,
-                    child: ListView.builder(
-                      itemCount: _sensorHistory.length,
-                      itemBuilder: (context, index) {
-                        return _buildSensorHistoryItem(_sensorHistory[index]);
-                      },
-                    ),
-                  ),
-                ],
-              ),
+            Icon(Icons.show_chart, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              "No sensor data available",
+              style: TextStyle(color: Colors.grey, fontSize: 16),
             ),
           ],
+        ),
+      )
+          : RefreshIndicator(
+        onRefresh: _loadSensorHistory,
+        child: ListView.builder(
+          itemCount: _sensorHistory.length,
+          itemBuilder: (context, index) {
+            return _buildSensorHistoryItem(_sensorHistory[index]);
+          },
         ),
       ),
     );

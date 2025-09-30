@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'Screens/home_screen';
+import 'Screens/home_screen.dart';
 import 'Screens/logs_screen.dart';
 import 'package:surge_monitor/Screens/settings_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
